@@ -1,0 +1,6 @@
+id=thermal_brightness_loosen
+name=Thermal Brightness Loosener (bright)
+version=v1.0-bright
+versionCode=1
+author=dsh
+description=Loosen ThermalBrightnessController caps: temp bands +4C, hot-end nits raised (floor 400), add condition 7. Shadows only the two /product/etc/displayconfig XMLs. Disable module to restore.
