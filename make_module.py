@@ -1,26 +1,93 @@
 #!/usr/bin/env python3
-"""Generate 'bright' preset thermal-brightness XMLs and a KernelSU module.
+"""Generate the 'bright' preset thermal-brightness KernelSU module (mount-free variant).
+
+Strategy: NO metamodule / NO system-dir overlay. The module ships patched XMLs and a
+post-fs-data.sh that per-file bind-mounts them over /product at early boot, before
+system_server parses the config. Works on KernelSU v3+ without a metamodule, and on
+Magisk.
 
 Rules (agreed with user):
   - temperature bands shift +4C (bound == 100 stays 100)
   - hot-end nit caps raised per remap table (floor 400 nit)
-  - add condition id=7 (copy of Default) to silence "not configured" warnings
+  - add condition id=7 (copy of Default)
 Only touches /product/etc/displayconfig/{multi_factor,common_multi_factor}_
-thermal_brightness_control.xml via systemless KSU overlay. Nothing else.
+thermal_brightness_control.xml. Nothing else.
 """
 import xml.etree.ElementTree as ET
-import os, shutil
+import os, shutil, zipfile
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 ORIG = os.path.join(BASE, "original")
 MOD = os.path.join(BASE, "module")
-TARGET_REL = "system/product/etc/displayconfig"
 
-# nit remap: raise hot-end, keep 1000/800 ceiling
 NIT_MAP = {160: 400, 200: 400, 250: 500, 300: 500, 360: 500,
            400: 500, 500: 600, 600: 800, 700: 800, 800: 800, 1000: 1000}
 TEMP_SHIFT = 4
-KEEP_MAX = 100  # the terminal band bound stays
+KEEP_MAX = 100
+
+FILES = ["multi_factor_thermal_brightness_control.xml",
+         "common_multi_factor_thermal_brightness_control.xml"]
+
+POST_FS_DATA = r"""#!/system/bin/sh
+# Thermal Brightness Loosener (mount-free variant)
+# Per-file bind mounts over /product, applied at post-fs-data — before
+# system_server / ThermalBrightnessController parses the config.
+# No metamodule required: the mounts are performed by this script itself.
+
+MODDIR=${0%/*}
+STAGE=/dev/.tbl_config
+TARGET_DIR=/product/etc/displayconfig
+CTX=u:object_r:system_file:s0
+
+mkdir -p "$STAGE" 2>/dev/null
+
+mount_file() {
+    name="$1"
+    src="$MODDIR/displayconfig/$name"
+    tgt="$TARGET_DIR/$name"
+    [ -f "$src" ] || { log -t TBL "missing $src"; return 1; }
+    [ -f "$tgt" ] || { log -t TBL "missing $tgt"; return 1; }
+    # stage on tmpfs so mountinfo does not leak /data/adb module paths
+    cp -f "$src" "$STAGE/$name" || return 1
+    chown 0:0 "$STAGE/$name"
+    chmod 644 "$STAGE/$name"
+    chcon "$CTX" "$STAGE/$name" 2>/dev/null
+    umount "$tgt" 2>/dev/null   # idempotent re-run guard
+    mount -o bind "$STAGE/$name" "$tgt"
+}
+
+for f in %NAMES%; do
+    if mount_file "$f"; then
+        log -t TBL "bound $f"
+    else
+        log -t TBL "FAILED to bind $f"
+    fi
+done
+"""
+
+UNINSTALL = r"""#!/system/bin/sh
+# Best-effort cleanup; the binds also disappear on their own at reboot.
+for f in %NAMES%; do
+    umount "/product/etc/displayconfig/$f" 2>/dev/null
+done
+rm -rf /dev/.tbl_config 2>/dev/null
+"""
+
+CUSTOMIZE = r"""SKIPUNZIP=0
+set_perm_recursive $MODPATH 0 0 0755 0644
+set_perm $MODPATH/post-fs-data.sh 0 0 0755
+set_perm $MODPATH/uninstall.sh 0 0 0755
+"""
+
+MODULE_PROP = """id=thermal_brightness_loosen
+name=Thermal Brightness Loosener (mount-free)
+version=v1.1-nomount
+versionCode=2
+author=dsh
+description=Loosen HyperOS thermal brightness caps (bright preset: temp bands +4C, hot-end nits raised, condition 7 added). Per-file bind mounts at post-fs-data - no metamodule needed. Disable + reboot to restore.
+"""
+
+# ---------- XML transform ----------
 
 def shift_temp(v):
     v = int(v)
@@ -28,77 +95,67 @@ def shift_temp(v):
 
 def remap_nit(v):
     n = int(v)
-    if n in NIT_MAP:
-        return NIT_MAP[n]
-    print(f"  !! unmapped nit {n}, keeping {n}")
-    return n
+    return NIT_MAP.get(n, n)
 
-def transform(path_in, path_out):
-    tree = ET.parse(path_in)
+def transform(src, dst):
+    tree = ET.parse(src)
     root = tree.getroot()
     default_item = None
     for item in root.findall("thermal-condition-item"):
-        ident = item.findtext("identifier")
-        if ident == "0":
+        if item.findtext("identifier") == "0":
             default_item = item
         for lux in item.findall("lux-temperature-pair"):
             for tp in lux.findall("temperature-brightness-pair"):
-                lo = tp.find("min-inclusive"); hi = tp.find("max-exclusive")
-                nit = tp.find("nit")
+                lo, hi, nit = tp.find("min-inclusive"), tp.find("max-exclusive"), tp.find("nit")
                 lo.text = str(shift_temp(lo.text))
                 hi.text = str(shift_temp(hi.text))
                 nit.text = str(remap_nit(nit.text))
-    # add condition 7 = Default (log shows id=7 requested repeatedly, unconfigured)
-    if default_item is not None and root.find("thermal-condition-item/identifier/..") is not None:
-        import copy
-        c7 = copy.deepcopy(default_item)
+    if default_item is not None:
+        c7 = ET.fromstring(ET.tostring(default_item))
         c7.find("identifier").text = "7"
         c7.find("description").text = "Default"
         root.append(c7)
     ET.indent(tree, space="    ")
-    tree.write(path_out, encoding="utf-8", xml_declaration=True)
-    # keep same declaration style as original
-    with open(path_out, "r", encoding="utf-8") as f:
+    tree.write(dst, encoding="utf-8", xml_declaration=True)
+    with open(dst, encoding="utf-8") as f:
         body = f.read()
-    if body.startswith("<?xml version='1.0' encoding='utf-8'?>"):
-        body = body.replace("<?xml version='1.0' encoding='utf-8'?>",
-                            "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>", 1)
-        with open(path_out, "w", encoding="utf-8") as f:
-            f.write(body)
+    body = body.replace("<?xml version='1.0' encoding='utf-8'?>",
+                        "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>", 1)
+    with open(dst, "w", encoding="utf-8") as f:
+        f.write(body)
+    ET.parse(dst)  # sanity
 
-def dump(path, label):
-    t = ET.parse(path); r = t.getroot()
-    print(f"== {label}")
-    for item in r.findall("thermal-condition-item"):
-        ident, desc = item.findtext("identifier"), item.findtext("description")
-        rows = []
-        for l in item.findall("lux-temperature-pair"):
-            row = ", ".join(f"{tp.findtext('min-inclusive')}-{tp.findtext('max-exclusive')}:{tp.findtext('nit')}"
-                            for tp in l.findall("temperature-brightness-pair"))
-            rows.append(f"lux {l.findtext('min-inclusive')}-{l.findtext('max-exclusive')}: {row}")
-        print(f"  id={ident:>4} [{desc}]")
-        for row in rows:
-            print(f"      {row}")
+# ---------- module assembly ----------
 
 def main():
     if os.path.exists(MOD):
         shutil.rmtree(MOD)
-    cfg_dir = os.path.join(MOD, TARGET_REL)
-    os.makedirs(cfg_dir)
-    for name in ["multi_factor_thermal_brightness_control.xml",
-                 "common_multi_factor_thermal_brightness_control.xml"]:
-        src = os.path.join(ORIG, name)
-        dst = os.path.join(cfg_dir, name)
-        transform(src, dst)
-        # sanity: parseable + valid root
-        ET.parse(dst)
-    print("########## BEFORE (multi_factor) ##########")
-    dump(os.path.join(ORIG, "multi_factor_thermal_brightness_control.xml"), "orig")
-    print("########## AFTER (multi_factor) ##########")
-    dump(os.path.join(cfg_dir, "multi_factor_thermal_brightness_control.xml"), "new")
-    print("########## common file conditions (new) ##########")
-    dump(os.path.join(cfg_dir, "common_multi_factor_thermal_brightness_control.xml"), "new-common")
-    print("OK, module tree written to", cfg_dir)
+    cfg = os.path.join(MOD, "displayconfig")
+    os.makedirs(cfg)
+    for name in FILES:
+        transform(os.path.join(ORIG, name), os.path.join(cfg, name))
+
+    names_sh = " \\\n         ".join(f'"{n}"' for n in FILES)
+    with open(os.path.join(MOD, "post-fs-data.sh"), "w") as f:
+        f.write(POST_FS_DATA.replace("%NAMES%", names_sh))
+    with open(os.path.join(MOD, "uninstall.sh"), "w") as f:
+        f.write(UNINSTALL.replace("%NAMES%", names_sh))
+    with open(os.path.join(MOD, "customize.sh"), "w") as f:
+        f.write(CUSTOMIZE)
+    with open(os.path.join(MOD, "module.prop"), "w") as f:
+        f.write(MODULE_PROP)
+
+    zp = "thermal_brightness_loosen_v1.1_nomount.zip"
+    with zipfile.ZipFile(os.path.join(BASE, zp), "w", zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk(MOD):
+            for fn in files:
+                p = os.path.join(root, fn)
+                z.write(p, os.path.relpath(p, MOD))
+    print("module tree:")
+    for root, dirs, files in os.walk(MOD):
+        for fn in sorted(files):
+            print("  ", os.path.relpath(os.path.join(root, fn), MOD))
+    print("zip:", zp, os.path.getsize(os.path.join(BASE, zp)), "bytes")
 
 if __name__ == "__main__":
     main()

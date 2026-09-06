@@ -84,3 +84,15 @@ D ThermalBrightnessController: updateMaxThermalBrightness: get brightness thresh
 
 解码脚本思路可参考同作者仓库;mi_thermald 的 `thermal-map.conf` 为另一套二进制加密,
 社区有 [adithya2306/mi-thermal-crypt](https://github.com/adithya2306/mi-thermal-crypt)。
+## 免挂载变体(v1.1-nomount)
+
+KernelSU v3.0+ 把模块挂载委托给可插拔的元模块(metamodule);未安装元模块时,依赖
+`system/` 目录 overlay 的模块不会生效。本仓库的 v1.1 起改为**脚本自挂载**:
+
+- `post-fs-data.sh`(post-fs-data 阶段,早于 system_server 读配置)把补丁 XML 暂存到
+  `/dev/.tbl_config`(tmpfs)并 `chcon u:object_r:system_file:s0` 后,
+  逐文件 `mount -o bind` 盖到 `/product/etc/displayconfig/`
+- mountinfo 中只有两条单文件 bind 记录(源为 /dev/.tbl_config),无模块路径泄漏,
+  无 overlay 分区级挂载
+- bind 挂载不持久化:重启自动消失;模块停用后下次开机不再挂载,天然可逆
+- 不需要元模块,兼容 Magisk/APatch 的脚本模块执行语义
