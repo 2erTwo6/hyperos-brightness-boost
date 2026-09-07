@@ -73,6 +73,15 @@ KernelSU/Magisk 管理器停用或删除模块后重启即还原(bind 挂载不�
   不泄漏 `/data/adb` 模块路径;也不会出现 overlay 分区级挂载
 - 若要求完全隐藏这两条挂载记录,需要内核级方案(susfs / Kasumi LKM 等),超出本模块范围
 
+## 配套检测脚本
+
+`scripts/brightcheck.sh` — 拷到手机后 `sh /sdcard/brightcheck.sh` 一键查看:
+当前面板 DBV(以 `brightness_clone` 实时镜像为准)、温控兜底状态、虚拟皮肤温度与当前热档位。无需 root。
+
+```bash
+curl -L -o /sdcard/brightcheck.sh https://raw.githubusercontent.com/2erTwo6/hyperos-brightness-boost/main/scripts/brightcheck.sh
+```
+
 ## 云控说明
 
 HyperOS 云控可以下发同功能配置(特征键 `cloud_multi_factor_thermal_brightness_control.xml`,
