@@ -9,7 +9,8 @@ Magisk.
 Rules (agreed with user):
   - temperature bands shift +4C (bound == 100 stays 100)
   - hot-end nit caps raised per remap table (floor 400 nit)
-  - add condition id=7 (copy of Default)
+  - stock condition structure preserved: NO synthetic id=7 injected; undefined
+    conditions keep stock fallback behavior (warning + Default)
 Only touches /product/etc/displayconfig/{multi_factor,common_multi_factor}_
 thermal_brightness_control.xml. Nothing else.
 """
@@ -81,10 +82,10 @@ set_perm $MODPATH/uninstall.sh 0 0 0755
 
 MODULE_PROP = """id=thermal_brightness_loosen
 name=Thermal Brightness Loosener (mount-free)
-version=v1.1-nomount
-versionCode=2
+version=v1.2-nomount
+versionCode=3
 author=dsh
-description=Loosen HyperOS thermal brightness caps (bright preset: temp bands +4C, hot-end nits raised, condition 7 added). Per-file bind mounts at post-fs-data - no metamodule needed. Disable + reboot to restore.
+description=Loosen HyperOS thermal brightness caps (bright preset: temp bands +4C, hot-end nits raised). Per-file bind mounts at post-fs-data - no metamodule needed. Stock condition structure preserved. Disable + reboot to restore.
 """
 
 # ---------- XML transform ----------
@@ -100,21 +101,13 @@ def remap_nit(v):
 def transform(src, dst):
     tree = ET.parse(src)
     root = tree.getroot()
-    default_item = None
     for item in root.findall("thermal-condition-item"):
-        if item.findtext("identifier") == "0":
-            default_item = item
         for lux in item.findall("lux-temperature-pair"):
             for tp in lux.findall("temperature-brightness-pair"):
                 lo, hi, nit = tp.find("min-inclusive"), tp.find("max-exclusive"), tp.find("nit")
                 lo.text = str(shift_temp(lo.text))
                 hi.text = str(shift_temp(hi.text))
                 nit.text = str(remap_nit(nit.text))
-    if default_item is not None:
-        c7 = ET.fromstring(ET.tostring(default_item))
-        c7.find("identifier").text = "7"
-        c7.find("description").text = "Default"
-        root.append(c7)
     ET.indent(tree, space="    ")
     tree.write(dst, encoding="utf-8", xml_declaration=True)
     with open(dst, encoding="utf-8") as f:
@@ -145,7 +138,7 @@ def main():
     with open(os.path.join(MOD, "module.prop"), "w") as f:
         f.write(MODULE_PROP)
 
-    zp = "thermal_brightness_loosen_v1.1_nomount.zip"
+    zp = "thermal_brightness_loosen_v1.2_nomount.zip"
     with zipfile.ZipFile(os.path.join(BASE, zp), "w", zipfile.ZIP_DEFLATED) as z:
         for root, dirs, files in os.walk(MOD):
             for fn in files:

@@ -21,9 +21,8 @@ HyperOS 的 `ThermalBrightnessController`(miui-services.jar,运行于 system_ser
 
 \* mi_thermald 的 51°C 兜底(→160 nit)与电池温度限亮通道**未动**,极端情况仍会保护性压暗。
 
-同时补充 condition id=7(与 Default 相同),消除反复刷屏的
-`Thermal condition (id=7) is not configured in file` 警告。
-游戏专属表(原神/星铁/云游戏/Dolby Vision)按同规则右移+上调。
+游戏专属表(原神/星铁/云游戏/Dolby Vision)按同规则右移+上调;**condition 结构保持原样**
+(不注入任何合成条件,未定义的 condition 沿用固件原生回退行为)。
 
 ## 温控其余部分 —— 完全不动
 
@@ -53,8 +52,8 @@ reboot   # 必须重启:控制器只在开机时解析配置,挂载也在开机�
 # 1. 挂载生效:能看到两条 bind(源是 /dev/.tbl_config)
 grep tbl_config /proc/self/mountinfo
 
-# 2. overlay 内容生效:能看到 id=7
-grep -A1 "<identifier>7</identifier>" /product/etc/displayconfig/multi_factor_thermal_brightness_control.xml
+# 2. 表内容生效:温度带右移后应出现 46-49 档(原表是 45-100)
+grep -o "46-49" /product/etc/displayconfig/multi_factor_thermal_brightness_control.xml | head -1
 
 # 3. 皮肤 ≥40°C 时阈值应是 800/600/500/400(原来是 600/500/300/200)
 logcat -d | grep "updateMaxThermalBrightness: get brightness threshold"
@@ -102,5 +101,6 @@ python3 make_module.py   # 见脚本内 TEMP_SHIFT / NIT_MAP,改完重跑即出�
 
 ## 更新日志
 
+- **v1.2-nomount** 移除 condition id=7 注入,condition 结构与原生完全一致(未定义条件沿用固件回退);表值修改不变
 - **v1.1-nomount** 改为免挂载脚本模块(post-fs-data 逐文件 bind mount),不再需要元模块
 - v1.0 systemless overlay 版(需要 KernelSU 元模块)已被本版取代,可从 tag/历史获取
