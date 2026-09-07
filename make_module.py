@@ -82,9 +82,9 @@ set_perm $MODPATH/uninstall.sh 0 0 0755
 
 MODULE_PROP = """id=thermal_brightness_loosen
 name=Thermal Brightness Loosener (mount-free)
-version=v1.2-nomount
-versionCode=3
-author=dsh
+version=v1.2.1-nomount
+versionCode=4
+author=2erTwo6
 description=Loosen HyperOS thermal brightness caps (bright preset: temp bands +4C, hot-end nits raised). Per-file bind mounts at post-fs-data - no metamodule needed. Stock condition structure preserved. Disable + reboot to restore.
 """
 
@@ -138,7 +138,7 @@ def main():
     with open(os.path.join(MOD, "module.prop"), "w") as f:
         f.write(MODULE_PROP)
 
-    zp = "thermal_brightness_loosen_v1.2_nomount.zip"
+    zp = "thermal_brightness_loosen_v1.2.1_nomount.zip"
     with zipfile.ZipFile(os.path.join(BASE, zp), "w", zipfile.ZIP_DEFLATED) as z:
         for root, dirs, files in os.walk(MOD):
             for fn in files:

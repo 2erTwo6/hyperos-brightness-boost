@@ -1,6 +1,6 @@
 id=thermal_brightness_loosen
 name=Thermal Brightness Loosener (mount-free)
-version=v1.2-nomount
-versionCode=3
-author=dsh
+version=v1.2.1-nomount
+versionCode=4
+author=2erTwo6
 description=Loosen HyperOS thermal brightness caps (bright preset: temp bands +4C, hot-end nits raised). Per-file bind mounts at post-fs-data - no metamodule needed. Stock condition structure preserved. Disable + reboot to restore.

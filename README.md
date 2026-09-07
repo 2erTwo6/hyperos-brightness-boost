@@ -101,6 +101,7 @@ python3 make_module.py   # 见脚本内 TEMP_SHIFT / NIT_MAP,改完重跑即出�
 
 ## 更新日志
 
+- **v1.2.1-nomount** 模块署名改为 2erTwo6
 - **v1.2-nomount** 移除 condition id=7 注入,condition 结构与原生完全一致(未定义条件沿用固件回退);表值修改不变
 - **v1.1-nomount** 改为免挂载脚本模块(post-fs-data 逐文件 bind mount),不再需要元模块
 - v1.0 systemless overlay 版(需要 KernelSU 元模块)已被本版取代,可从 tag/历史获取
